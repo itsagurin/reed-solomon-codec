@@ -48,7 +48,3 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pytest
 ```
-
-## Status
-
-Etap 0: szkielet projektu (sygnatury funkcji i komentarze), bez implementacji.
