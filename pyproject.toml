@@ -1,0 +1,10 @@
+[project]
+name = "rs-codec"
+version = "0.1.0"
+description = "Własna implementacja kodera i dekodera kodu Reeda-Solomona RS(255, 223) nad GF(2^8)"
+requires-python = ">=3.9"
+
+[tool.pytest.ini_options]
+# Dzięki temu testy widzą pakiet rs_codec bez instalacji.
+pythonpath = ["src"]
+testpaths = ["tests"]
