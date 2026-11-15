@@ -17,10 +17,31 @@ from rs_codec.config import FIELD_SIZE, PRIM_POLY
 EXP: list[int] = []   # EXP[i] = alfa^i (podwojona długość, by uniknąć operacji modulo przy mnożeniu)
 LOG: list[int] = []   # LOG[x] = i, takie że alfa^i = x (LOG[0] jest nieokreślony)
 
+_ORDER = FIELD_SIZE - 1   # 255 = liczba niezerowych elementów ciała (okres potęg alfa)
+
 
 def build_tables(prim_poly: int = PRIM_POLY) -> None:
     """Generuje tablice EXP i LOG na podstawie wielomianu pierwotnego `prim_poly`."""
-    raise NotImplementedError
+    # Tablice zmieniamy "w miejscu" (a nie przypisujemy nowych list), bo inne moduły
+    # mogły już zrobić `from rs_codec.gf28_math import EXP, LOG`.
+    EXP[:] = [0] * (2 * _ORDER + 2)   # 512 pozycji: zapas, żeby nie robić % 255 przy mnożeniu
+    LOG[:] = [0] * FIELD_SIZE         # 256 pozycji; LOG[0] zostaje 0 (i tak nie ma sensu)
+
+    x = 1                             # alfa^0 = 1
+    for i in range(_ORDER):
+        EXP[i] = x
+        LOG[x] = i
+        x <<= 1                       # mnożenie przez alfa = 2 (przesunięcie o bit)
+        if x & FIELD_SIZE:            # wyszliśmy poza 8 bitów (x >= 256)?
+            x ^= prim_poly            # to "zawijamy" przez XOR z wielomianem pierwotnym
+
+    # Po 255 krokach wracamy do 1 tylko wtedy, gdy wielomian jest naprawdę pierwotny.
+    if x != 1:
+        raise ValueError(f"Wielomian {prim_poly:#x} nie jest pierwotny")
+
+    # Druga połowa tablicy EXP = kopia pierwszej (okres 255), by indeksy do ~510 działały.
+    for i in range(_ORDER, 2 * _ORDER + 2):
+        EXP[i] = EXP[i - _ORDER]
 
 
 # ---------------------------------------------------------------------------
@@ -29,27 +50,41 @@ def build_tables(prim_poly: int = PRIM_POLY) -> None:
 
 def gf_add(a: int, b: int) -> int:
     """Dodawanie (i odejmowanie) w GF(2^8) - zwykły XOR."""
-    raise NotImplementedError
+    return a ^ b
 
 
 def gf_mul(a: int, b: int) -> int:
     """Mnożenie przez tablice LUT: alfa^(log a + log b); zwraca 0, gdy a lub b to 0."""
-    raise NotImplementedError
+    if a == 0 or b == 0:
+        return 0
+    return EXP[LOG[a] + LOG[b]]       # suma logarytmów <= 508, mieści się w tablicy EXP
 
 
 def gf_div(a: int, b: int) -> int:
     """Dzielenie a / b przez tablice LUT; zgłasza ZeroDivisionError dla b == 0."""
-    raise NotImplementedError
+    if b == 0:
+        raise ZeroDivisionError("dzielenie przez 0 w GF(2^8)")
+    if a == 0:
+        return 0
+    return EXP[LOG[a] - LOG[b] + _ORDER]   # + 255, żeby indeks nie był ujemny
 
 
 def gf_pow(a: int, power: int) -> int:
     """Potęgowanie a^power (power może być ujemne)."""
-    raise NotImplementedError
+    if a == 0:
+        if power == 0:
+            return 1                  # umowa: 0^0 = 1
+        if power < 0:
+            raise ZeroDivisionError("0 do ujemnej potęgi w GF(2^8)")
+        return 0
+    return EXP[(LOG[a] * power) % _ORDER]  # % w Pythonie działa poprawnie także dla ujemnych
 
 
 def gf_inv(a: int) -> int:
     """Odwrotność multiplikatywna elementu a (a != 0)."""
-    raise NotImplementedError
+    if a == 0:
+        raise ZeroDivisionError("0 nie ma odwrotności w GF(2^8)")
+    return EXP[_ORDER - LOG[a]]
 
 
 # ---------------------------------------------------------------------------
@@ -57,29 +92,70 @@ def gf_inv(a: int) -> int:
 # ---------------------------------------------------------------------------
 
 def poly_add(p: list[int], q: list[int]) -> list[int]:
-    """Suma wielomianów (XOR współczynników, wyrównanie do najniższych potęg)."""
-    raise NotImplementedError
+    """Suma wielomianów (XOR współczynników, wyrównanie do najniższych potęg).
+
+    Zerowe współczynniki wiodące NIE są obcinane (długość wyniku = max(len(p), len(q))).
+    """
+    n = max(len(p), len(q))
+    result = [0] * n
+    # Wyrównujemy do prawej strony: ostatni element listy to zawsze wyraz wolny.
+    for i, c in enumerate(p):
+        result[i + n - len(p)] ^= c
+    for i, c in enumerate(q):
+        result[i + n - len(q)] ^= c
+    return result
 
 
 def poly_scale(p: list[int], scalar: int) -> list[int]:
     """Mnożenie wielomianu przez stałą z GF(2^8)."""
-    raise NotImplementedError
+    return [gf_mul(c, scalar) for c in p]
 
 
 def poly_mul(p: list[int], q: list[int]) -> list[int]:
     """Iloczyn dwóch wielomianów (splot ze współczynnikami mnożonymi w GF)."""
-    raise NotImplementedError
+    if not p or not q:
+        return []
+    result = [0] * (len(p) + len(q) - 1)
+    for i, a in enumerate(p):
+        for j, b in enumerate(q):
+            # Wyraz a*x^(deg_i) razy b*x^(deg_j) trafia do pozycji i+j; sumujemy XOR-em.
+            result[i + j] ^= gf_mul(a, b)
+    return result
 
 
 def poly_eval(p: list[int], x: int) -> int:
     """Wartość wielomianu p w punkcie x (schemat Hornera)."""
-    raise NotImplementedError
+    y = 0
+    for c in p:                       # od najwyższej potęgi do wyrazu wolnego
+        y = gf_mul(y, x) ^ c
+    return y
 
 
 def poly_divmod(dividend: list[int], divisor: list[int]) -> tuple[list[int], list[int]]:
-    """Dzielenie wielomianów; zwraca (iloraz, reszta). Dzielnik musi mieć niezerowy współczynnik wiodący."""
-    raise NotImplementedError
+    """Dzielenie wielomianów; zwraca (iloraz, reszta). Dzielnik musi mieć niezerowy współczynnik wiodący.
+
+    Reszta ma zawsze dokładnie len(divisor) - 1 współczynników (wiodące zera zostają),
+    dzięki czemu koder dostaje stałą liczbę symboli parzystości.
+    """
+    if not divisor or divisor[0] == 0:
+        raise ZeroDivisionError("dzielnik musi mieć niezerowy współczynnik wiodący")
+
+    rem_len = len(divisor) - 1
+    if len(dividend) < len(divisor):
+        # Dzielna jest "za krótka": iloraz = 0, reszta = sama dzielna (dopełniona zerami z lewej).
+        return [0], [0] * (rem_len - len(dividend)) + list(dividend)
+
+    out = list(dividend)              # tu "w miejscu" powstaje iloraz (z przodu) i reszta (z tyłu)
+    quotient_len = len(dividend) - rem_len
+    for i in range(quotient_len):
+        coef = gf_div(out[i], divisor[0])   # przez ile trzeba pomnożyć dzielnik, by wyzerować out[i]
+        out[i] = coef
+        if coef:
+            for j in range(1, len(divisor)):
+                out[i + j] ^= gf_mul(divisor[j], coef)
+
+    return out[:quotient_len], out[quotient_len:]
 
 
-# Tablice budujemy raz przy imporcie modułu (po zaimplementowaniu build_tables).
-# build_tables()
+# Tablice budujemy raz przy imporcie modułu.
+build_tables()
