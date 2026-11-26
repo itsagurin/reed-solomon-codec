@@ -81,9 +81,7 @@ def gf_inv(a: int) -> int:
     return EXP[_ORDER - LOG[a]]
 
 
-# ---------------------------------------------------------------------------
 # Operacje na wielomianach nad GF(2^8)
-# ---------------------------------------------------------------------------
 
 def poly_add(p: list[int], q: list[int]) -> list[int]:
     """Suma wielomianów (XOR współczynników, wyrównanie do najniższych potęg).
