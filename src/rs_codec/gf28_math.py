@@ -122,10 +122,7 @@ def poly_eval(p: list[int], x: int) -> int:
 
 
 def poly_divmod(dividend: list[int], divisor: list[int]) -> tuple[list[int], list[int]]:
-    """Dzielenie wielomianów; zwraca (iloraz, reszta). Dzielnik musi mieć niezerowy współczynnik wiodący.
-
-    Reszta ma zawsze dokładnie len(divisor) - 1 współczynników (wiodące zera zostają),
-    dzięki czemu koder dostaje stałą liczbę symboli parzystości.
+    """Dzielenie wielomianów; zwraca (iloraz, reszta).
     """
     if not divisor or divisor[0] == 0:
         raise ZeroDivisionError("dzielnik musi mieć niezerowy współczynnik wiodący")
