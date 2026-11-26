@@ -14,39 +14,33 @@ from __future__ import annotations
 from rs_codec.config import FIELD_SIZE, PRIM_POLY
 
 # Tablice wypełniane przez build_tables() (wywołanie na poziomie modułu).
-EXP: list[int] = []   # EXP[i] = alfa^i (podwojona długość, by uniknąć operacji modulo przy mnożeniu)
-LOG: list[int] = []   # LOG[x] = i, takie że alfa^i = x (LOG[0] jest nieokreślony)
+EXP: list[int] = []
+LOG: list[int] = []
 
-_ORDER = FIELD_SIZE - 1   # 255 = liczba niezerowych elementów ciała (okres potęg alfa)
+_ORDER = FIELD_SIZE - 1
 
 
 def build_tables(prim_poly: int = PRIM_POLY) -> None:
     """Generuje tablice EXP i LOG na podstawie wielomianu pierwotnego `prim_poly`."""
-    # Tablice zmieniamy "w miejscu" (a nie przypisujemy nowych list), bo inne moduły
-    # mogły już zrobić `from rs_codec.gf28_math import EXP, LOG`.
-    EXP[:] = [0] * (2 * _ORDER + 2)   # 512 pozycji: zapas, żeby nie robić % 255 przy mnożeniu
-    LOG[:] = [0] * FIELD_SIZE         # 256 pozycji; LOG[0] zostaje 0 (i tak nie ma sensu)
+    EXP[:] = [0] * (2 * _ORDER + 2)
+    LOG[:] = [0] * FIELD_SIZE
 
-    x = 1                             # alfa^0 = 1
+    x = 1
     for i in range(_ORDER):
         EXP[i] = x
         LOG[x] = i
-        x <<= 1                       # mnożenie przez alfa = 2 (przesunięcie o bit)
-        if x & FIELD_SIZE:            # wyszliśmy poza 8 bitów (x >= 256)?
-            x ^= prim_poly            # to "zawijamy" przez XOR z wielomianem pierwotnym
+        x <<= 1
+        if x & FIELD_SIZE:
+            x ^= prim_poly
 
-    # Po 255 krokach wracamy do 1 tylko wtedy, gdy wielomian jest naprawdę pierwotny.
     if x != 1:
         raise ValueError(f"Wielomian {prim_poly:#x} nie jest pierwotny")
 
-    # Druga połowa tablicy EXP = kopia pierwszej (okres 255), by indeksy do ~510 działały.
     for i in range(_ORDER, 2 * _ORDER + 2):
         EXP[i] = EXP[i - _ORDER]
 
 
-# ---------------------------------------------------------------------------
 # Operacje na elementach ciała
-# ---------------------------------------------------------------------------
 
 def gf_add(a: int, b: int) -> int:
     """Dodawanie (i odejmowanie) w GF(2^8) - zwykły XOR."""
@@ -77,7 +71,7 @@ def gf_pow(a: int, power: int) -> int:
         if power < 0:
             raise ZeroDivisionError("0 do ujemnej potęgi w GF(2^8)")
         return 0
-    return EXP[(LOG[a] * power) % _ORDER]  # % w Pythonie działa poprawnie także dla ujemnych
+    return EXP[(LOG[a] * power) % _ORDER]
 
 
 def gf_inv(a: int) -> int:
@@ -98,7 +92,6 @@ def poly_add(p: list[int], q: list[int]) -> list[int]:
     """
     n = max(len(p), len(q))
     result = [0] * n
-    # Wyrównujemy do prawej strony: ostatni element listy to zawsze wyraz wolny.
     for i, c in enumerate(p):
         result[i + n - len(p)] ^= c
     for i, c in enumerate(q):
@@ -118,7 +111,6 @@ def poly_mul(p: list[int], q: list[int]) -> list[int]:
     result = [0] * (len(p) + len(q) - 1)
     for i, a in enumerate(p):
         for j, b in enumerate(q):
-            # Wyraz a*x^(deg_i) razy b*x^(deg_j) trafia do pozycji i+j; sumujemy XOR-em.
             result[i + j] ^= gf_mul(a, b)
     return result
 
@@ -126,7 +118,7 @@ def poly_mul(p: list[int], q: list[int]) -> list[int]:
 def poly_eval(p: list[int], x: int) -> int:
     """Wartość wielomianu p w punkcie x (schemat Hornera)."""
     y = 0
-    for c in p:                       # od najwyższej potęgi do wyrazu wolnego
+    for c in p:
         y = gf_mul(y, x) ^ c
     return y
 
@@ -142,13 +134,12 @@ def poly_divmod(dividend: list[int], divisor: list[int]) -> tuple[list[int], lis
 
     rem_len = len(divisor) - 1
     if len(dividend) < len(divisor):
-        # Dzielna jest "za krótka": iloraz = 0, reszta = sama dzielna (dopełniona zerami z lewej).
         return [0], [0] * (rem_len - len(dividend)) + list(dividend)
 
-    out = list(dividend)              # tu "w miejscu" powstaje iloraz (z przodu) i reszta (z tyłu)
+    out = list(dividend)
     quotient_len = len(dividend) - rem_len
     for i in range(quotient_len):
-        coef = gf_div(out[i], divisor[0])   # przez ile trzeba pomnożyć dzielnik, by wyzerować out[i]
+        coef = gf_div(out[i], divisor[0])
         out[i] = coef
         if coef:
             for j in range(1, len(divisor)):
